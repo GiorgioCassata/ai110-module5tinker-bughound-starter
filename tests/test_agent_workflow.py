@@ -1,3 +1,5 @@
+import pytest
+
 from bughound_agent import BugHoundAgent
 from llm_client import MockClient
 
@@ -46,4 +48,38 @@ def test_mock_client_forces_llm_fallback_to_heuristics_for_analysis():
 
     assert any(issue.get("type") == "Code Quality" for issue in result["issues"])
     # Ensure we logged the fallback path
+    assert any("Falling back to heuristics" in entry.get("message", "") for entry in result["logs"])
+
+
+class _BadAnalyzerClient:
+    """Returns a fixed (bad) analyzer response; empty fixer output forces the heuristic fixer."""
+
+    def __init__(self, analyzer_output):
+        self.analyzer_output = analyzer_output
+
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        if "Return ONLY valid JSON" in system_prompt:
+            return self.analyzer_output
+        return ""
+
+
+@pytest.mark.parametrize(
+    "bad_output",
+    [
+        "I found some issues, but I'm not returning JSON.",  # plain prose
+        "",  # empty response
+        "[ not valid json",  # malformed / unterminated array
+        '{"type": "Code Quality", "msg": "x"}',  # JSON object, not an array
+        '["just a string", 42]',  # array with no usable issue dicts
+        '[{"type": "Code Quality", "severity": "Low"}]',  # issue missing "msg"
+    ],
+)
+def test_non_json_analyzer_output_falls_back_to_heuristics(bad_output):
+    agent = BugHoundAgent(client=_BadAnalyzerClient(bad_output))
+    code = "def f():\n    print('hi')\n    return True\n"
+    result = agent.run(code)
+
+    # Heuristics should still find the print issue and produce a fix.
+    assert any(issue.get("type") == "Code Quality" for issue in result["issues"])
+    assert "logging.info(" in result["fixed_code"]
     assert any("Falling back to heuristics" in entry.get("message", "") for entry in result["logs"])

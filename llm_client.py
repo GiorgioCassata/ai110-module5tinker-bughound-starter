@@ -1,6 +1,7 @@
 import os
 from typing import Optional
-
+# Import here so other modes don't require the dependency at import time.
+import ollama
 
 class MockClient:
     """
@@ -59,4 +60,40 @@ class GeminiClient:
         except Exception:
             # Returning empty string allows the agent to detect the failure
             # and switch to offline rules.
+            return ""
+
+
+class OllamaClient:
+    """
+    Local LLM wrapper using Ollama (no API key needed).
+
+    Requirements:
+    - `ollama` Python package installed
+    - Ollama running locally with the model pulled (e.g. `ollama pull gemma4`)
+    """
+
+    def __init__(self, model_name: str = "gemma4:latest", temperature: float = 0.2):
+
+        self.client = ollama.Client()
+        self.model_name = model_name
+        self.temperature = float(temperature)
+
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        """
+        Sends a single chat request to the local Ollama server.
+
+        On any error (server down, model missing, etc.) returns an empty string,
+        triggering the agent's heuristic fallback logic.
+        """
+        try:
+            response = self.client.chat(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                options={"temperature": self.temperature},
+            )
+            return (response["message"]["content"] or "").strip()
+        except Exception:
             return ""

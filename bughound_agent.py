@@ -176,27 +176,33 @@ class BugHoundAgent:
     def _parse_json_array_of_issues(self, text: str) -> Optional[List[Dict[str, str]]]:
         text = text.strip()
         parsed = self._try_json_loads(text)
-        if isinstance(parsed, list):
-            return self._normalize_issues(parsed)
+        if not isinstance(parsed, list):
+            array_str = self._extract_first_json_array(text)
+            parsed = self._try_json_loads(array_str) if array_str else None
 
-        array_str = self._extract_first_json_array(text)
-        if array_str:
-            parsed2 = self._try_json_loads(array_str)
-            if isinstance(parsed2, list):
-                return self._normalize_issues(parsed2)
+        if not isinstance(parsed, list):
+            return None
 
-        return None
+        issues = self._normalize_issues(parsed)
+        if parsed and not issues:
+            return None  # non-empty output but nothing usable -> treat as unparseable
+        return issues
 
     def _normalize_issues(self, arr: List[Any]) -> List[Dict[str, str]]:
         issues: List[Dict[str, str]] = []
+        valid_severities = {"low": "Low", "medium": "Medium", "high": "High"}
         for item in arr:
             if not isinstance(item, dict):
                 continue
+            msg = str(item.get("msg", "")).strip()
+            if not msg:
+                continue  # an issue with no description is unusable
+            severity = valid_severities.get(str(item.get("severity", "")).strip().lower(), "Medium")
             issues.append(
                 {
                     "type": str(item.get("type", "Issue")),
-                    "severity": str(item.get("severity", "Unknown")),
-                    "msg": str(item.get("msg", "")).strip(),
+                    "severity": severity,
+                    "msg": msg,
                 }
             )
         return issues

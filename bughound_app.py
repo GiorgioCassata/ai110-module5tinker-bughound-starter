@@ -4,7 +4,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from bughound_agent import BugHoundAgent
-from llm_client import GeminiClient, MockClient
+from llm_client import GeminiClient, MockClient, OllamaClient
 
 # ----------------------------
 # App setup
@@ -78,6 +78,7 @@ mode = st.sidebar.selectbox(
     [
         "Heuristic only (no API)",
         "Gemini (requires API key)",
+        "Ollama (local gemma4)",
     ],
     help="Heuristic mode runs fully offline. Gemini mode calls the Gemini API for analysis and fix proposal.",
 )
@@ -92,13 +93,19 @@ model_name = st.sidebar.selectbox(
     disabled=(mode != "Gemini (requires API key)"),
 )
 
+ollama_model_name = st.sidebar.text_input(
+    "Ollama model",
+    value="gemma4:latest",
+    disabled=(mode != "Ollama (local gemma4)"),
+)
+
 temperature = st.sidebar.slider(
     "Temperature",
     min_value=0.0,
     max_value=1.0,
     value=0.2,
     step=0.1,
-    disabled=(mode != "Gemini (requires API key)"),
+    disabled=(mode == "Heuristic only (no API)"),
     help="Lower values tend to be more consistent. Higher values tend to be more creative.",
 )
 
@@ -120,6 +127,13 @@ client_status = ""
 if mode == "Heuristic only (no API)":
     client = MockClient()
     client_status = "Using MockClient. No network calls."
+elif mode == "Ollama (local gemma4)":
+    try:
+        client = OllamaClient(model_name=ollama_model_name, temperature=temperature)
+        client_status = f"Ollama client ready ({ollama_model_name}). Runs locally."
+    except Exception as e:
+        client = None
+        client_status = f"Could not start Ollama client: {e}"
 else:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
@@ -165,7 +179,10 @@ if run_button:
     if not require_code_input(code_input):
         st.stop()
 
-    if mode == "Gemini (requires API key)" and client is None:
+    if mode == "Ollama (local gemma4)" and client is None:
+        st.error("Ollama mode is selected, but the client could not be created. See the sidebar.")
+        st.stop()
+    elif mode == "Gemini (requires API key)" and client is None:
         st.error("Gemini mode is selected, but no API key is available.")
         st.stop()
 
